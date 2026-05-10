@@ -46,40 +46,54 @@ app.post('/registrar', (req, res) => {
 
 // Ruta para iniciar sesión (Log-in)
 app.post('/login', (req, res) => {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
-    if (!username || !password) {
-        return res.status(400).json({ error: 'Faltan credenciales' });
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Faltan credenciales (email y password)' });
     }
 
-    const query = 'SELECT * FROM usuarios WHERE username = ? AND password = ?';
+    // Buscamos al usuario
+    const query = 'SELECT * FROM usuarios WHERE email = ? AND password = ?';
 
-    db.query(query, [username, password], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
+    db.query(query, [email, password], (err, results) => {
+        if (err) {
+            console.error("Error en la base de datos:", err);
+            return res.status(500).json({ error: err.message });
+        }
 
         if (results.length > 0) {
+            // IMPORTANTE: Enviamos 'id' y 'nombre' exactamente con esos nombres
+            // Usamos results[0].username (o la columna donde guardes el nombre)
             res.json({
                 mensaje: '¡Bienvenido a Bille!',
-                usuario: results[0].username
+                id: results[0].id, 
+                nombre: results[0].username // Cambia .username por .nombre si así se llama tu columna en SQL
             });
         } else {
-            res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+            res.status(401).json({ error: 'Correo o contraseña incorrectos' });
         }
     });
 });
 
-// Ruta para registrar un nuevo gasto
+// Ruta para registrar un gasto
 app.post('/gastos', (req, res) => {
-    const { usuario_id, descripcion, monto, categoria } = req.body;
+    // 1. Ahora incluimos 'fecha' en la desestructuración
+    const { usuario_id, descripcion, monto, categoria, fecha } = req.body;
 
-    if (!usuario_id || !descripcion || !monto) {
-        return res.status(400).json({ error: 'Faltan datos obligatorios' });
+    // 2. Validamos (la fecha también es importante)
+    if (!usuario_id || !descripcion || !monto || !fecha) {
+        return res.status(400).json({ error: 'Faltan datos obligatorios, incluyendo la fecha' });
     }
 
-    const query = 'INSERT INTO gastos (usuario_id, descripcion, monto, categoria) VALUES (?, ?, ?, ?)';
+    // 3. Agregamos 'fecha' a la consulta SQL y un "?" extra
+    const query = 'INSERT INTO gastos (usuario_id, descripcion, monto, categoria, fecha) VALUES (?, ?, ?, ?, ?)';
 
-    db.query(query, [usuario_id, descripcion, monto, categoria], (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
+    // 4. Pasamos los 5 parámetros en orden
+    db.query(query, [usuario_id, descripcion, monto, categoria, fecha], (err, result) => {
+        if (err) {
+            console.error("Error al insertar gasto:", err);
+            return res.status(500).json({ error: err.message });
+        }
         
         res.status(201).json({ 
             mensaje: 'Gasto registrado en Bille', 
@@ -96,7 +110,11 @@ app.get('/gastos/:usuario_id', (req, res) => {
     const query = 'SELECT * FROM gastos WHERE usuario_id = ? ORDER BY fecha DESC';
 
     db.query(query, [usuario_id], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err){ 
+            console.error("Error al obtener gastos: ", err);
+            return res.status(500).json({ error: err.message });
+    
+        }
 
         res.json(results);
     });
