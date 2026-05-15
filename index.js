@@ -22,6 +22,53 @@ db.connect((err) => {
     console.log('¡Conectado exitosamente a la base de datos de Bille!');
 });
 
+// Endpoint: POST /registro-completo (Versión compatible con mysql2 callbacks)
+app.post('/registro-completo', (req, res) => {
+    const { username, email, password, presupuesto, limites } = req.body;
+
+    // 1. VALIDACIÓN
+    const sumaLimites = Object.values(limites).reduce((a, b) => a + b, 0);
+    if (sumaLimites > presupuesto) {
+        return res.status(400).json({ 
+            error: "La suma de los límites no puede exceder el presupuesto global." 
+        });
+    }
+
+    // 2. INSERTAR USUARIO
+    const queryUser = "INSERT INTO usuarios (username, email, password, presupuesto, alerta_limite, reporte_semanal) VALUES (?, ?, ?, ?, 1, 0)";
+    
+    db.query(queryUser, [username, email, password, presupuesto], (err, userResult) => {
+        if (err) {
+            console.error("Error al insertar usuario:", err);
+            return res.status(500).json({ error: "Error al crear el usuario" });
+        }
+
+        const nuevoUsuarioId = userResult.insertId;
+
+        // 3. INSERTAR LÍMITES POR CATEGORÍA
+        // Preparamos los datos para una inserción múltiple
+        const valoresLimites = Object.entries(limites).map(([categoria, monto]) => [
+            nuevoUsuarioId, 
+            categoria, 
+            monto
+        ]);
+
+        const queryLimites = "INSERT INTO limites_categoria (usuario_id, categoria, limite_mensual) VALUES ?";
+        
+        db.query(queryLimites, [valoresLimites], (errLimites, resultLimites) => {
+            if (errLimites) {
+                console.error("Error al insertar límites:", errLimites);
+                return res.status(500).json({ error: "Usuario creado, pero hubo un error con los límites" });
+            }
+
+            res.status(201).json({ 
+                message: "Usuario y límites creados con éxito", 
+                usuarioId: nuevoUsuarioId 
+            });
+        });
+    });
+});
+
 // Ruta para registrar un usuario
 app.post('/registrar', (req, res) => {
     const { username, password, email } = req.body;
@@ -156,6 +203,34 @@ app.get('/usuarios/saldo/:usuario_id', (req, res) => {
     db.query(query, [usuario_id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results[0]);
+    });
+});
+
+// Obtener configuración actual del usuario
+app.get('/configuracion/:id', (req, res) => {
+    const query = 'SELECT alerta_limite, reporte_semanal, presupuesto FROM usuarios WHERE id = ?';
+    db.query(query, [req.params.id], (err, result) => {
+        if (err) {
+            console.error("Error al obtener configuración:", err);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result[0]);
+    });
+});
+
+// Guardar nueva configuración
+app.post('/configuracion', (req, res) => {
+    // Recibimos 'presupuesto' tal cual está en tu base de datos
+    const { id, alerta_limite, reporte_semanal, presupuesto } = req.body;
+    
+    const query = 'UPDATE usuarios SET alerta_limite = ?, reporte_semanal = ?, presupuesto = ? WHERE id = ?';
+    
+    db.query(query, [alerta_limite, reporte_semanal, presupuesto, id], (err, result) => {
+        if (err) {
+            console.error("Error al actualizar configuración:", err);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ mensaje: 'Configuración actualizada en Bille' });
     });
 });
 
