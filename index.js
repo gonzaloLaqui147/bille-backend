@@ -22,7 +22,7 @@ db.connect((err) => {
     console.log('¡Conectado exitosamente a la base de datos de Bille!');
 });
 
-// Endpoint: POST /registro-completo (Versión compatible con mysql2 callbacks)
+// Endpoint: POST /registro-completo 
 app.post('/registro-completo', (req, res) => {
     const { username, email, password, presupuesto, limites } = req.body;
 
@@ -46,7 +46,6 @@ app.post('/registro-completo', (req, res) => {
         const nuevoUsuarioId = userResult.insertId;
 
         // 3. INSERTAR LÍMITES POR CATEGORÍA
-        // Preparamos los datos para una inserción múltiple
         const valoresLimites = Object.entries(limites).map(([categoria, monto]) => [
             nuevoUsuarioId, 
             categoria, 
@@ -99,7 +98,6 @@ app.post('/login', (req, res) => {
         return res.status(400).json({ error: 'Faltan credenciales (email y password)' });
     }
 
-    // Buscamos al usuario
     const query = 'SELECT * FROM usuarios WHERE email = ? AND password = ?';
 
     db.query(query, [email, password], (err, results) => {
@@ -109,12 +107,10 @@ app.post('/login', (req, res) => {
         }
 
         if (results.length > 0) {
-            // IMPORTANTE: Enviamos 'id' y 'nombre' exactamente con esos nombres
-            // Usamos results[0].username (o la columna donde guardes el nombre)
             res.json({
                 mensaje: '¡Bienvenido a Bille!',
                 id: results[0].id, 
-                nombre: results[0].username // Cambia .username por .nombre si así se llama tu columna en SQL
+                nombre: results[0].username
             });
         } else {
             res.status(401).json({ error: 'Correo o contraseña incorrectos' });
@@ -127,15 +123,14 @@ app.post('/gastos', (req, res) => {
     // 1. Ahora incluimos 'fecha' en la desestructuración
     const { usuario_id, descripcion, monto, categoria, fecha } = req.body;
 
-    // 2. Validamos (la fecha también es importante)
+    // 2. Validamos 
     if (!usuario_id || !descripcion || !monto || !fecha) {
         return res.status(400).json({ error: 'Faltan datos obligatorios, incluyendo la fecha' });
     }
 
-    // 3. Agregamos 'fecha' a la consulta SQL y un "?" extra
     const query = 'INSERT INTO gastos (usuario_id, descripcion, monto, categoria, fecha) VALUES (?, ?, ?, ?, ?)';
 
-    // 4. Pasamos los 5 parámetros en orden
+    // 3. Pasamos los 5 parámetros en orden
     db.query(query, [usuario_id, descripcion, monto, categoria, fecha], (err, result) => {
         if (err) {
             console.error("Error al insertar gasto:", err);
@@ -153,7 +148,7 @@ app.post('/gastos', (req, res) => {
 app.get('/gastos/:usuario_id', (req, res) => {
     const { usuario_id } = req.params;
 
-    // Ordenamos por fecha descendente para que los más recientes salgan primero
+    // Ordenamos por fecha descendente
     const query = 'SELECT * FROM gastos WHERE usuario_id = ? ORDER BY fecha DESC';
 
     db.query(query, [usuario_id], (err, results) => {
@@ -163,6 +158,23 @@ app.get('/gastos/:usuario_id', (req, res) => {
     
         }
 
+        res.json(results);
+    });
+});
+
+// === AGREGA ESTE NUEVO ENDPOINT AQUÍ ABAJO ===
+// Ruta exclusiva para el Dashboard: Obtener solo los 5 gastos más recientes
+app.get('/gastos/recientes/:usuario_id', (req, res) => {
+    const { usuario_id } = req.params;
+
+    // Limitamos la consulta de SQL a solo 5 resultados
+    const query = 'SELECT * FROM gastos WHERE usuario_id = ? ORDER BY fecha DESC LIMIT 5';
+
+    db.query(query, [usuario_id], (err, results) => {
+        if (err) { 
+            console.error("Error al obtener gastos recientes: ", err);
+            return res.status(500).json({ error: err.message });
+        }
         res.json(results);
     });
 });
@@ -183,15 +195,12 @@ app.put('/usuarios/presupuesto', (req, res) => {
     });
 });
 
-// Calculo de Saldo Disponible
+// Obtener el Saldo Disponible Real (Presupuesto - Suma de Gastos del Mes)
 app.get('/usuarios/saldo/:usuario_id', (req, res) => {
     const { usuario_id } = req.params;
 
-    // Esta consulta filtra los gastos para que solo sume los del MES y AÑO actual
     const query = `
         SELECT 
-            u.presupuesto, 
-            IFNULL(SUM(g.monto), 0) as gastos_del_mes,
             (u.presupuesto - IFNULL(SUM(g.monto), 0)) as saldo_disponible
         FROM usuarios u
         LEFT JOIN gastos g ON u.id = g.usuario_id 
@@ -202,7 +211,10 @@ app.get('/usuarios/saldo/:usuario_id', (req, res) => {
 
     db.query(query, [usuario_id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(results[0]);
+        
+        // Retornamos directamente el valor numérico o 0 si no se encuentra
+        const saldo = results[0] ? results[0].saldo_disponible : 0;
+        res.json({ saldo_disponible: saldo });
     });
 });
 
